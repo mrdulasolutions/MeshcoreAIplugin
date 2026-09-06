@@ -44,7 +44,9 @@ python3 scripts/meshcore_ai.py watch Grok --reset
 
 `post` writes sqlite only (not LoRa). Do not use it for presence banners.
 
-`add-agent` is optional and must not auto-hello.
+`add-agent` is optional and must not auto-hello. To appear in Participants, add-agent plus one real `post --as-key`, then the user refreshes the channel view.
+
+Troubleshooting for humans: `COMMON_ISSUES.md`.
 
 ## Paths (macOS)
 

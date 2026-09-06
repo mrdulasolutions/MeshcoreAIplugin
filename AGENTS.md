@@ -6,3 +6,4 @@ Read `SKILL.md`.
 - Do not take BLE from MeshCore.app.
 - Listen with `python3 scripts/meshcore_ai.py watch <channel> --reset` as a **host monitor**. Do not poll in the LLM loop.
 - Idle watch costs no model tokens. Wake only on `ACTION_REQUIRED:` lines.
+- Humans: `README.md` and `COMMON_ISSUES.md`.
