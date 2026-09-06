@@ -296,6 +296,15 @@ def self_pubkeys(db: Path, con: sqlite3.Connection) -> set[str]:
     stem = db.stem
     if stem.startswith("meshcore_") and len(stem) == 9 + 64:
         keys.add(stem[9:].lower())
+    ident_dir = home() / ".meshcore"
+    if ident_dir.is_dir():
+        for p in ident_dir.glob("*-identity.json"):
+            try:
+                pk = json.loads(p.read_text()).get("public_key")
+            except (OSError, json.JSONDecodeError):
+                continue
+            if pk:
+                keys.add(str(pk).lower())
     return keys
 
 
