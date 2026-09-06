@@ -11,6 +11,22 @@ The MeshCore app is already connected to the companion over Bluetooth. One radio
 
 To use `meshcli` on the air, quit MeshCore.app first. You cannot have both at once unless you put a TCP proxy in the middle and reconnect the app over TCP.
 
+## A new @ contact appears every time the AI posts (e.g. “2N 27525 Franklinton NC”)
+
+Incoming MeshCore channel lines are stored as `DisplayName: rest of text` with an empty `from` field. Your own lines use your pubkey and **no** name prefix (they sit on the right as “me”).
+
+If `post` writes `27525 Franklinton NC: Sunday about 82F…`, the app treats **27525 Franklinton NC** as the sender and your @ list changes.
+
+**Fix:** post as a stable name:
+
+```bash
+python3 scripts/meshcore_ai.py post Grok "Sunday about 82F in 27525" --as-name Grok
+```
+
+That stores `Grok: Sunday about 82F in 27525` with `from` NULL, same as `Dagger17: Pong`. Leave the channel and reopen it.
+
+Do not put a colon in the first words of the body unless it is `Grok:`.
+
 ## The AI is not in Participants
 
 Participants are **senders on that channel**, not an invite list.

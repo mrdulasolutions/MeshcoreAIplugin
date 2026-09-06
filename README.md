@@ -77,8 +77,10 @@ Coding agents should attach a **persistent host monitor** to that command. Do no
 MeshCore lists people who have **spoken** on the channel, plus contacts. After `add-agent Grok`, post one real line as that identity (not “I am on this channel”):
 
 ```bash
-python3 scripts/meshcore_ai.py post Grok "hi" --as-key <64-char public key from add-agent>
+python3 scripts/meshcore_ai.py post Grok "hi" --as-name Grok
 ```
+
+That stores `Grok: hi` with an empty `from` field, the same shape as `Dagger17: Pong`. Your own messages stay on the right with no name. Never start the body with `Something:` or MeshCore will mint a new @ contact from those words.
 
 Then leave the Grok chat and open it again (or restart MeshCore). The app caches the list in memory.
 

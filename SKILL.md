@@ -42,7 +42,7 @@ python3 scripts/meshcore_ai.py join-url Grok
 python3 scripts/meshcore_ai.py watch Grok --reset
 ```
 
-`post` writes sqlite only (not LoRa). Do not use it for presence banners.
+`post --as-name Grok "text"` stores `Grok: text` with `from` NULL (left-side bubble). Raw `post` without `--as-name` looks like the user. A colon in the first words without `--as-name` creates a fake @ contact. `post` is sqlite only (not LoRa). No presence banners.
 
 `add-agent` is optional and must not auto-hello. To appear in Participants, add-agent plus one real `post --as-key`, then the user refreshes the channel view.
 

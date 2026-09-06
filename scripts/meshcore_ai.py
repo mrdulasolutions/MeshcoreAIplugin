@@ -251,34 +251,71 @@ def cmd_add_agent(args: argparse.Namespace) -> None:
     if args.hello:
         if not args.channel:
             raise SystemExit("--hello requires --channel")
-        post_local(con, args.channel, ident["public_key"], args.hello)
+        post_local(con, args.channel, args.hello, as_name=ident["name"])
 
 
-def post_local(con: sqlite3.Connection, channel: str, sender_hex: str, text: str) -> None:
+def post_local(
+    con: sqlite3.Connection,
+    channel: str,
+    text: str,
+    *,
+    as_name: str | None = None,
+    as_key: str | None = None,
+) -> None:
+    """Insert a channel line in the same shape the MeshCore app uses.
+
+    Own messages: from=<self pubkey>, text=<body>
+    Everyone else (left-side bubbles): from=NULL, text='Name: body'
+
+    A colon in the body without the Name: prefix makes the app invent a
+    new @ contact from the words before the colon.
+    """
     secret = channel_secret_for(con, channel)
     now = int(time.time())
     now_ms = now * 1000
+    body = text.strip()
+    if as_name:
+        prefix = f"{as_name}: "
+        if not body.startswith(prefix):
+            body = prefix + body
+        from_val = None
+        path_len = 0
+    else:
+        from_val = (as_key or "").lower() or None
+        path_len = None
     con.execute(
         """INSERT INTO channel_messages
            (channel_secret, "from", path_len, txt_type, sender_timestamp, text, timestamp, repeats_heard_count)
-           VALUES (?, ?, 0, 0, ?, ?, ?, 0)""",
-        (secret, sender_hex.lower(), now, text, now_ms),
+           VALUES (?, ?, ?, 0, ?, ?, ?, 0)""",
+        (secret, from_val, path_len, now, body, now_ms),
     )
     con.execute(
         "UPDATE channels SET last_message_sent_or_received_at = ? WHERE secret = ?",
         (now_ms, secret),
     )
     con.commit()
-    print(f"posted locally to {channel}: {text}")
+    print(f"posted locally to {channel}: {body}")
 
 
 def cmd_post(args: argparse.Namespace) -> None:
-    info = plist_self_info() or {}
-    sender = args.as_key or info.get("public_key")
-    if not sender:
-        raise SystemExit("pass --as-key (64 hex) or open MeshCore so flutter.current_self_info exists")
     con = connect(find_db())
-    post_local(con, args.channel, sender, args.text)
+    name = args.as_name
+    key = args.as_key
+    if not name and key:
+        row = con.execute(
+            "SELECT adv_name FROM contacts WHERE lower(hex(public_key)) = ?",
+            (key.lower(),),
+        ).fetchone()
+        if row and row["adv_name"]:
+            name = row["adv_name"]
+    if name:
+        post_local(con, args.channel, args.text, as_name=name, as_key=key)
+    else:
+        info = plist_self_info() or {}
+        sender = key or info.get("public_key")
+        if not sender:
+            raise SystemExit("pass --as-name Grok (other people) or --as-key for self")
+        post_local(con, args.channel, args.text, as_key=sender)
     print("note: this is a local app-DB insert. It does not transmit over LoRa.")
 
 
@@ -286,6 +323,19 @@ def state_dir() -> Path:
     d = home() / ".meshcore" / "watch"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def agent_identities() -> list[dict]:
+    out: list[dict] = []
+    ident_dir = home() / ".meshcore"
+    if not ident_dir.is_dir():
+        return out
+    for p in ident_dir.glob("*-identity.json"):
+        try:
+            out.append(json.loads(p.read_text()))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return out
 
 
 def self_pubkeys(db: Path, con: sqlite3.Connection) -> set[str]:
@@ -296,16 +346,21 @@ def self_pubkeys(db: Path, con: sqlite3.Connection) -> set[str]:
     stem = db.stem
     if stem.startswith("meshcore_") and len(stem) == 9 + 64:
         keys.add(stem[9:].lower())
-    ident_dir = home() / ".meshcore"
-    if ident_dir.is_dir():
-        for p in ident_dir.glob("*-identity.json"):
-            try:
-                pk = json.loads(p.read_text()).get("public_key")
-            except (OSError, json.JSONDecodeError):
-                continue
-            if pk:
-                keys.add(str(pk).lower())
+    for ident in agent_identities():
+        pk = ident.get("public_key")
+        if pk:
+            keys.add(str(pk).lower())
     return keys
+
+
+def is_agent_line(text: str | None) -> bool:
+    if not text:
+        return False
+    for ident in agent_identities():
+        name = ident.get("name")
+        if name and text.startswith(f"{name}: "):
+            return True
+    return False
 
 
 def sender_name(con: sqlite3.Connection, sender: str | None) -> str:
@@ -359,7 +414,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
             line = f"{r['id']}\t{name}\t{r['text']}\n"
             with log.open("a") as f:
                 f.write(line)
-            if args.skip_self and sender in self_keys:
+            if args.skip_self and (sender in self_keys or is_agent_line(r["text"])):
                 continue
             if args.verbose:
                 print(line, end="", flush=True)
@@ -408,7 +463,8 @@ def build_parser() -> argparse.ArgumentParser:
     po = sub.add_parser("post", help="insert a local channel message (not LoRa)")
     po.add_argument("channel")
     po.add_argument("text")
-    po.add_argument("--as-key", help="sender public key hex")
+    po.add_argument("--as-name", help="left-side sender, e.g. Grok (stores 'Name: text', from NULL)")
+    po.add_argument("--as-key", help="self pubkey for right-side 'me' bubbles")
     po.set_defaults(func=cmd_post)
 
     w = sub.add_parser("watch", help="silent host poll; stdout only on new inbound messages")
