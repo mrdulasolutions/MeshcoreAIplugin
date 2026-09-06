@@ -248,8 +248,10 @@ def cmd_add_agent(args: argparse.Namespace) -> None:
         print("contact inserted")
     else:
         print("contact already present")
-    if args.channel:
-        post_local(con, args.channel, ident["public_key"], args.hello or f"{ident['name']} here.")
+    if args.hello:
+        if not args.channel:
+            raise SystemExit("--hello requires --channel")
+        post_local(con, args.channel, ident["public_key"], args.hello)
 
 
 def post_local(con: sqlite3.Connection, channel: str, sender_hex: str, text: str) -> None:
@@ -280,17 +282,59 @@ def cmd_post(args: argparse.Namespace) -> None:
     print("note: this is a local app-DB insert. It does not transmit over LoRa.")
 
 
+def state_dir() -> Path:
+    d = home() / ".meshcore" / "watch"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def self_pubkeys(db: Path, con: sqlite3.Connection) -> set[str]:
+    keys: set[str] = set()
+    info = plist_self_info() or {}
+    if info.get("public_key"):
+        keys.add(str(info["public_key"]).lower())
+    stem = db.stem
+    if stem.startswith("meshcore_") and len(stem) == 9 + 64:
+        keys.add(stem[9:].lower())
+    return keys
+
+
+def sender_name(con: sqlite3.Connection, sender: str | None) -> str:
+    if not sender:
+        return "unknown"
+    row = con.execute(
+        "SELECT adv_name FROM contacts WHERE lower(hex(public_key)) = ?",
+        (sender.lower(),),
+    ).fetchone()
+    if row and row["adv_name"]:
+        return row["adv_name"]
+    return sender[:12]
+
+
 def cmd_watch(args: argparse.Namespace) -> None:
-    con = connect(find_db())
+    """Host-side poll. Idle is silent. New inbound rows emit one ACTION_REQUIRED line.
+
+    Agents must run this as a background monitor, not inside the LLM loop.
+    """
+    db = find_db()
+    con = connect(db)
     secret = channel_secret_for(con, args.channel)
-    last = con.execute(
-        "SELECT COALESCE(MAX(id), 0) FROM channel_messages WHERE channel_secret = ?",
-        (secret,),
-    ).fetchone()[0]
-    print(f"watching {args.channel} from id {last}", flush=True)
+    self_keys = self_pubkeys(db, con)
+    st = state_dir() / f"{args.channel.lower()}.last_id"
+    log = state_dir() / f"{args.channel.lower()}.log"
+    if args.reset or not st.exists():
+        last = con.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM channel_messages WHERE channel_secret = ?",
+            (secret,),
+        ).fetchone()[0]
+        st.write_text(str(last))
+    else:
+        last = int(st.read_text().strip() or "0")
+    if args.verbose:
+        print(f"watching {args.channel} from id {last} skip_self={sorted(self_keys)}", flush=True)
     while True:
         time.sleep(args.interval)
-        con = connect(find_db())
+        con = connect(db)
         rows = con.execute(
             """SELECT id, timestamp, "from" AS sender, text
                FROM channel_messages
@@ -300,7 +344,20 @@ def cmd_watch(args: argparse.Namespace) -> None:
         ).fetchall()
         for r in rows:
             last = r["id"]
-            print(f"{r['id']}\t{r['timestamp']}\t{r['sender'] or ''}\t{r['text']}", flush=True)
+            st.write_text(str(last))
+            sender = (r["sender"] or "").lower()
+            name = sender_name(con, r["sender"])
+            line = f"{r['id']}\t{name}\t{r['text']}\n"
+            with log.open("a") as f:
+                f.write(line)
+            if args.skip_self and sender in self_keys:
+                continue
+            if args.verbose:
+                print(line, end="", flush=True)
+            else:
+                # One wakeup line for coding agents. Details stay in the log.
+                text = (r["text"] or "").replace("\n", " ")
+                print(f"ACTION_REQUIRED: MeshCore {args.channel} {name}: {text}", flush=True)
 
 
 def cmd_join_url(args: argparse.Namespace) -> None:
@@ -333,8 +390,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     ag = sub.add_parser("add-agent", help="create Ed25519 identity and add as MeshCore contact")
     ag.add_argument("name")
-    ag.add_argument("--channel", help="also post a local hello on this channel")
-    ag.add_argument("--hello")
+    ag.add_argument("--channel", help="only used with --hello")
+    ag.add_argument("--hello", help="optional local DB line; do not use a 'I am here' banner")
     ag.add_argument("--store", default="~/.meshcore")
     ag.add_argument("--no-open", action="store_true")
     ag.set_defaults(func=cmd_add_agent)
@@ -345,10 +402,13 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--as-key", help="sender public key hex")
     po.set_defaults(func=cmd_post)
 
-    w = sub.add_parser("watch", help="poll channel_messages and print new rows")
+    w = sub.add_parser("watch", help="silent host poll; stdout only on new inbound messages")
     w.add_argument("channel")
     w.add_argument("--interval", type=float, default=2.0)
-    w.set_defaults(func=cmd_watch)
+    w.add_argument("--verbose", action="store_true", help="print every new row, including self")
+    w.add_argument("--reset", action="store_true", help="start from current max id")
+    w.add_argument("--no-skip-self", dest="skip_self", action="store_false")
+    w.set_defaults(func=cmd_watch, skip_self=True)
 
     j = sub.add_parser("join-url", help="print meshcore:// join URL for a channel")
     j.add_argument("channel")
