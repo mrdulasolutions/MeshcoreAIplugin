@@ -363,6 +363,15 @@ def is_agent_line(text: str | None) -> bool:
     return False
 
 
+def agent_pubkeys_only() -> set[str]:
+    keys: set[str] = set()
+    for ident in agent_identities():
+        pk = ident.get("public_key")
+        if pk:
+            keys.add(str(pk).lower())
+    return keys
+
+
 def sender_name(con: sqlite3.Connection, sender: str | None) -> str:
     if not sender:
         return "unknown"
@@ -383,7 +392,6 @@ def cmd_watch(args: argparse.Namespace) -> None:
     db = find_db()
     con = connect(db)
     secret = channel_secret_for(con, args.channel)
-    self_keys = self_pubkeys(db, con)
     st = state_dir() / f"{args.channel.lower()}.last_id"
     log = state_dir() / f"{args.channel.lower()}.log"
     if args.reset or not st.exists():
@@ -395,7 +403,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
     else:
         last = int(st.read_text().strip() or "0")
     if args.verbose:
-        print(f"watching {args.channel} from id {last} skip_self={sorted(self_keys)}", flush=True)
+        print(f"watching {args.channel} from id {last} skip_agent={sorted(agent_pubkeys_only())}", flush=True)
     while True:
         time.sleep(args.interval)
         con = connect(db)
@@ -414,7 +422,9 @@ def cmd_watch(args: argparse.Namespace) -> None:
             line = f"{r['id']}\t{name}\t{r['text']}\n"
             with log.open("a") as f:
                 f.write(line)
-            if args.skip_self and (sender in self_keys or is_agent_line(r["text"])):
+            # Skip only *agent* echoes (Grok: … / agent pubkey). Never skip the
+            # local MeshCore node: on this channel that is the human talking to the AI.
+            if args.skip_self and (is_agent_line(r["text"]) or sender in agent_pubkeys_only()):
                 continue
             if args.verbose:
                 print(line, end="", flush=True)

@@ -71,6 +71,12 @@ The CLI also inserts into sqlite. If the UI is stale, leave the screen and come 
 
 Both sides need the **same 32-character secret**. `join-url` prints it. Hashtag channels (`--hashtag`) derive the secret from `#name`; a private `Grok` channel uses a random secret. Those are different rooms.
 
+## I @Grok from my own node and the AI never answers
+
+Your messages are stored with **your** pubkey. Early `watch` skipped all “self” rows, so questions from MACDAGGER never woke the agent.
+
+Current `watch` only skips the **agent** identity (`Grok: …` lines). Your own @Grok lines must notify. Update the plugin and restart `watch --reset`.
+
 ## Watcher never prints anything
 
 That is success while idle. It only prints `ACTION_REQUIRED:` for **new inbound** messages, not your own node and not the agent identity in `~/.meshcore/*-identity.json`.
