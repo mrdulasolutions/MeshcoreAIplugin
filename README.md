@@ -19,7 +19,7 @@ Stuck? See **[COMMON_ISSUES.md](COMMON_ISSUES.md)**.
 | Make a private channel | `python3 scripts/meshcore_ai.py add-channel Grok` |
 | Invite someone else | `python3 scripts/meshcore_ai.py join-url Grok` |
 | Show the AI as a participant | `python3 scripts/meshcore_ai.py add-agent Grok` then one `post --as-key …` |
-| Listen without burning AI tokens | `python3 scripts/meshcore_ai.py watch Grok --reset` |
+| Listen without burning AI tokens | `python3 scripts/meshcore_ai.py watch Grok --reset --mention Grok --mention Grok` |
 
 ---
 
@@ -59,10 +59,10 @@ Send the `meshcore://channel/add?name=Grok&secret=…` link to the other node. T
 **Listen (cheap)**
 
 ```bash
-python3 scripts/meshcore_ai.py watch Grok --reset
+python3 scripts/meshcore_ai.py watch Grok --reset --mention Grok
 ```
 
-Leave that running on the computer, not inside the chat. It sits quiet (no model tokens). When someone *else* posts, it prints one line:
+Leave that running on the computer, not inside the chat. It sits quiet (no model tokens). It only prints when a message **@-mentions the AI contact** (`@Grok` or `@[Grok]`), no matter who sent it:
 
 ```text
 ACTION_REQUIRED: MeshCore Grok Dagger17: hello

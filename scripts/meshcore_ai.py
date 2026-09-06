@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -357,6 +358,29 @@ def agent_pubkeys_only() -> set[str]:
     return keys
 
 
+def mention_names(explicit: list[str] | None) -> list[str]:
+    names = [n.strip() for n in (explicit or []) if n and n.strip()]
+    if names:
+        return names
+    return [str(i["name"]) for i in agent_identities() if i.get("name")]
+
+
+def is_contact_mention(text: str | None, names: list[str]) -> bool:
+    """True if the MeshCore line @-mentions one of the agent contact names.
+
+    App chips look like @[Grok] or @Grok. Older chips used @[Grok here. …].
+    """
+    if not text or not names:
+        return False
+    for name in names:
+        n = re.escape(name)
+        if re.search(rf"@\[\s*{n}(?:\s|[\].,!?:;]|$)", text, re.I):
+            return True
+        if re.search(rf"@{n}\b", text, re.I):
+            return True
+    return False
+
+
 def sender_name(con: sqlite3.Connection, sender: str | None) -> str:
     if not sender:
         return "unknown"
@@ -387,8 +411,14 @@ def cmd_watch(args: argparse.Namespace) -> None:
         st.write_text(str(last))
     else:
         last = int(st.read_text().strip() or "0")
+    names = mention_names(args.mention)
+    if not names and not args.verbose:
+        raise SystemExit("watch needs --mention NAME (or ~/.meshcore/*-identity.json)")
     if args.verbose:
-        print(f"watching {args.channel} from id {last} skip_agent={sorted(agent_pubkeys_only())}", flush=True)
+        print(
+            f"watching {args.channel} from id {last} mention={names}",
+            flush=True,
+        )
     while True:
         time.sleep(args.interval)
         con = connect(db)
@@ -407,14 +437,13 @@ def cmd_watch(args: argparse.Namespace) -> None:
             line = f"{r['id']}\t{name}\t{r['text']}\n"
             with log.open("a") as f:
                 f.write(line)
-            # Skip only *agent* echoes (Grok: … / agent pubkey). Never skip the
-            # local MeshCore node: on this channel that is the human talking to the AI.
-            if args.skip_self and (is_agent_line(r["text"]) or sender in agent_pubkeys_only()):
+            if is_agent_line(r["text"]) or sender in agent_pubkeys_only():
+                continue
+            if not args.verbose and not is_contact_mention(r["text"], names):
                 continue
             if args.verbose:
                 print(line, end="", flush=True)
             else:
-                # One wakeup line for coding agents. Details stay in the log.
                 text = (r["text"] or "").replace("\n", " ")
                 print(f"ACTION_REQUIRED: MeshCore {args.channel} {name}: {text}", flush=True)
 
@@ -467,8 +496,13 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--interval", type=float, default=2.0)
     w.add_argument("--verbose", action="store_true", help="print every new row, including self")
     w.add_argument("--reset", action="store_true", help="start from current max id")
-    w.add_argument("--no-skip-self", dest="skip_self", action="store_false")
-    w.set_defaults(func=cmd_watch, skip_self=True)
+    w.add_argument(
+        "--mention",
+        action="append",
+        default=[],
+        help="contact name that must be @-mentioned to wake (repeatable). Default: names in ~/.meshcore/*-identity.json",
+    )
+    w.set_defaults(func=cmd_watch)
 
     j = sub.add_parser("join-url", help="print meshcore:// join URL for a channel")
     j.add_argument("channel")

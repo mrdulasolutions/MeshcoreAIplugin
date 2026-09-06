@@ -23,10 +23,10 @@ Listen = one **host** process. Idle process = **zero tokens**. Wake the agent on
 Launch:
 
 ```bash
-python3 scripts/meshcore_ai.py watch Grok --reset
+python3 scripts/meshcore_ai.py watch Grok --reset --mention Grok
 ```
 
-Use the environment `monitor` tool with `persistent: true`. The script is silent until a **new inbound** row appears (skips the local node’s own pubkey). Details: `~/.meshcore/watch/Grok.log`.
+Use the environment `monitor` tool with `persistent: true`. Silent until a new row **@-mentions** the contact name (`@Grok` or `@[Grok]`), from anyone. Agent `Grok: …` echoes are ignored. Log: `~/.meshcore/watch/Grok.log`.
 
 On wakeup: read that log line, answer the user, keep the same monitor running.
 
