@@ -338,21 +338,6 @@ def agent_identities() -> list[dict]:
     return out
 
 
-def self_pubkeys(db: Path, con: sqlite3.Connection) -> set[str]:
-    keys: set[str] = set()
-    info = plist_self_info() or {}
-    if info.get("public_key"):
-        keys.add(str(info["public_key"]).lower())
-    stem = db.stem
-    if stem.startswith("meshcore_") and len(stem) == 9 + 64:
-        keys.add(stem[9:].lower())
-    for ident in agent_identities():
-        pk = ident.get("public_key")
-        if pk:
-            keys.add(str(pk).lower())
-    return keys
-
-
 def is_agent_line(text: str | None) -> bool:
     if not text:
         return False
